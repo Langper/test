@@ -1,0 +1,23 @@
+1.erlang
+ RabbitMQ服务端代码是使用并发式语言Erlang编写的，安装Rabbit MQ的前提是安装Erlang
+ http://www.erlang.org/downloads
+
+2.RabbitMQ
+http://www.rabbitmq.com/download.html
+cmd
+---> cd D:\00.Software\RabbitMQ\rabbitmq_server-3.7.4\sbin
+---> rabbitmq-plugins.bat enable rabbitmq_management
+---> net stop RabbitMQ && net start RabbitMQ
+
+
+
+3.访问服务端
+http://localhost:15672
+user/pwd:guest/guest
+
+
+4.rabbitmqctl list_queues 报错
+解决方案：
+用C:\WINDOWS\system32\config\systemprofile下的.erlang.cookie 替换  C:\Users\%USERNAME%.erlang.cookie 
+
+%HOMEDRIVE%%HOMEPATH%.erlang.cookie (usually C:\Users\%USERNAME%.erlang.cookie for user %USERNAME%) if both the HOMEDRIVE and HOMEPATH environment variables are set %USERPROFILE%.erlang.cookie (usually C:\Users\%USERNAME%.erlang.cookie) if HOMEDRIVE and HOMEPATH are not both set For the RabbitMQ Windows service - %USERPROFILE%.erlang.cookie (usually C:\WINDOWS\system32\config\systemprofile) The cookie file used by the Windows service account and the user running CLI tools must be synchronised.
