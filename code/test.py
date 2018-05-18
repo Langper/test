@@ -7,4 +7,5 @@ list =[1,2,1]
 
 list_1 = set(list)
 
+print("test version modified simple file")
 print(list_1)
