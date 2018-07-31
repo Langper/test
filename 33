@@ -1,0 +1,765 @@
+function showBlockUI() {
+    // 改變block ui樣式
+    $.blockUI.defaults.css.border = 'none';
+    $.blockUI.defaults.css.width = '0%';
+    $.blockUI.defaults.css.top = '50%';
+    $.blockUI.defaults.css.backgroundColor = 'none';
+    $.blockUI.defaults.css.color = 'none';
+
+    $.blockUI({
+        message: $('#divDisplayBox'),
+        css: {
+            top: ($(window).height() - 60) / 2 + 'px',
+            left: ($(window).width() - 60) / 2 + 'px',
+        }
+    });
+}
+
+var app = angular.module('shipping_mgt', ['pascalprecht.translate','angularFileUpload']);
+
+// 配置config，读取相应国际化语言json文档
+app.config(['$translateProvider', function ($translateProvider) {
+
+  $translateProvider.translations('zh-CN',key_value_cn);
+  $translateProvider.translations('zh-TW',key_value_tw);
+  $translateProvider.translations('en-US',key_value_us);
+
+  var lang;
+  if (localStorage.lang == null)
+  {
+    lang = 'zh-CN';
+  }
+  else {
+    lang = localStorage.lang;
+  }
+  $translateProvider.preferredLanguage(lang);
+
+ }]);
+
+ app.directive('onFinishRenderFilters', function ($timeout) {
+   return {
+     restrict: 'A',
+     link: function(scope, element, attr) {
+       if (scope.$last === true) {
+         $timeout(function() {
+           scope.$emit('ngRepeatFinished');
+         });
+       }
+     }
+   };
+ });
+
+ app.filter('clear_param',function(){
+    return function(source_str){
+      var clear_str=source_str;
+      if(!!clear_str)
+      {
+
+        clear_str=clear_str.replace(/，/g,",").replace(/\s/g,",");
+        clear_str=clear_str.replace(/,,/g,",");
+        if(clear_str.substr(clear_str.length-1,1)==","){
+          clear_str=clear_str.substring(0,clear_str.length-1);
+        }
+      }
+      else
+      {
+        // clear_str=clear_str.replace(/，/g,",").replace(/\s/g,",");
+        // clear_str=clear_str.replace(/,,/g,",");
+        // if(clear_str.substr(clear_str.length-1,1)==","){
+        //   clear_str=clear_str.substring(0,clear_str.length-1);
+        // }
+        // alert(clear_str);
+        console.log(!!clear_str);
+      }
+      console.log(clear_str);
+      return clear_str;
+    }
+  }
+);
+
+app.controller('shipping_mgt',function($scope,$http){
+  var menu_id = window.parent.$('.J_menuTab.active').attr('data-id');
+  var token = localStorage.token;
+  var url = 'http://localhost:5000/v1.0/authority/'+token+'/'+menu_id; //获取控件权限
+  $scope.show_release = true;
+  $http.get(url)
+  .then(function success(response){
+    $scope.authority = response.data.content;
+    console.log($scope.authority);
+    if($scope.authority.is_release>=1)
+    {
+      $scope.show_release = true;
+    }
+    else {
+      // alert("Release is false!");
+      $scope.show_release = false;
+    }
+    if($scope.authority.is_insert>=1)
+    {
+      $scope.show_insert = true;
+    }
+    else {
+      $scope.show_insert = false;
+    }
+    if($scope.authority.is_delete>=1)
+    {
+      $scope.show_delete = true;
+    }
+    else {
+      $scope.show_delete = false;
+    }
+    if($scope.authority.is_update>=1)
+    {
+      $scope.show_update = true;
+    }
+    else {
+      $scope.show_update = false;
+    }
+    if($scope.authority.is_select>=1)
+    {
+      $scope.show_select = true;
+    }
+    else {
+      $scope.show_select = false;
+    }
+    if($scope.authority.is_download>=1)
+    {
+      $scope.show_download = true;
+    }
+    else {
+      $scope.show_download = false;
+    }
+
+    if(!$scope.show_release)
+    {
+      $('.nav.nav-tabs').find('.active').removeClass('active').siblings('li').addClass('active');
+      $('.tab-content').find('.active').removeClass('active').siblings('div').addClass('active');
+    }
+  },function error(response){
+
+  }
+  );
+
+
+
+});
+
+
+app.controller('shipping_release', function($scope, $http) {
+  $scope.Plants = [{"plant":"PAJ3"}];
+  $scope.is_nodata = false;
+  $scope.Table_message = 'No data is uploaded this week!';
+  $scope.show_overlay = true;
+  get_uploaded_files("PAJ3");
+  var differentindex = 999;
+  $("#down_report").hover(function() {
+
+        differentindex = layer.tips('Download', '#down_report', {
+          tips: [1, '#1ab394'],
+          time: 30000
+        });
+        }, function() {
+            layer.close(differentindex);
+        });
+  $("#edit_report").hover(function() {
+        differentindex = layer.tips('Edit', '#edit_report', {
+          tips: [1, '#1ab394'],
+          time: 30000
+        });
+        }, function() {
+            layer.close(differentindex);
+        });
+  $("#save_report").hover(function() {
+        differentindex = layer.tips('Save', '#save_report', {
+          tips: [1, '#1ab394'],
+          time: 30000
+        });
+        }, function() {
+            layer.close(differentindex);
+        });
+  $("#release_report").hover(function() {
+        differentindex = layer.tips('Lock', '#release_report', {
+          tips: [1, '#1ab394'],
+          time: 30000
+        });
+        }, function() {
+            layer.close(differentindex);
+        });
+  $scope.search = function()
+  {
+    var plant = JSON.parse(JSON.stringify($scope.Plant)).plant;
+    get_uploaded_files(plant);
+  }
+  $scope.reset = function()
+  {
+      $scope.Plant = $scope.Plants[0];
+  }
+  function get_uploaded_files(plant)
+  {
+    var url = "http://localhost:5000/v1.0/shipping_plan/uploaded_files/" + plant
+    $http.get(url)
+    .then(function success(response){
+      console.log(response.data.content);
+      $scope.Uploaded_files = response.data.content.Uploaded_files;
+      console.log($scope.Uploaded_files)
+      if ($scope.Uploaded_files.length>0)
+      {
+        $scope.is_nodata = false;
+        if(!!!response.data.content.release_status)
+        {
+          if(response.data.content.freeze_status==1)
+          {
+            $scope.dis_release = true;
+            $scope.dis_unrelease = false;
+          }
+          else{
+            $scope.dis_release = false;
+            $scope.dis_unrelease = true;
+          }
+        }
+        else if(response.data.content.release_status==1)
+        {
+          $scope.dis_release = true;
+          $scope.dis_unrelease = true;
+        }
+
+      }
+      else
+      {
+        $scope.is_nodata = true;
+        $scope.dis_release = true;
+        $scope.dis_unrelease = true;
+      }
+    },function error(response){
+      $scope.is_nodata = true;
+      $scope.Table_message = response.data.message;
+      alert(response.data.message);
+    }
+    );
+  };
+
+  $scope.Check_all = function(){
+    var checkall=document.getElementsByName('check_all');
+    var id = document.getElementsByName('ship_need_type');
+     if(checkall[0].checked)
+     {
+         for(var i = 0; i < id.length; i++)
+         {
+           id[i].checked=true;
+         }
+     }
+     else{
+       for(var i = 0; i < id.length; i++)
+       {
+         id[i].checked=false;
+       }
+     }
+  };
+
+  $scope.Release = function(){
+    showBlockUI();
+    var id = document.getElementsByName('ship_need_type');
+    var value = new Array();
+    var miss_type = [
+                      {
+                        "file_type":"L12 Material Plan",
+                        "is_miss":true
+                      },
+                      {
+                        "file_type":"L6 GDL",
+                        "is_miss":true
+                      },
+                      {
+                        "file_type":"L6 CZ",
+                        "is_miss":true
+                      },
+                      {
+                        "file_type":"NPI",
+                        "is_miss":true
+                      },
+                      {
+                        "file_type":"RMA",
+                        "is_miss":true
+                      },
+                      {
+                        "file_type":"L12 Ship Data",
+                        "is_miss":true
+                      },
+                      {
+                        "file_type":"L6 Ship Data",
+                        "is_miss":true
+                      }
+                    ]
+    var j=0;
+    for(var i = 0; i < id.length; i++)
+    {
+       if(id[i].checked)
+       {
+          var td = id[i].parentNode.parentNode.getElementsByTagName('td');
+          console.log(td[3]);
+          // alert(td[3].innerHTML);
+          var item = {
+            "plant":td[2].innerHTML,
+            "file_type":td[3].innerHTML,
+            "version_date":td[4].innerHTML
+          }
+          for(var j = 0; j<miss_type.length;j++)
+          {
+            if(td[3].innerHTML == miss_type[j]["file_type"])
+            {
+              miss_type[j]["is_miss"] = false;
+              break;
+            }
+          }
+          value.push(item);
+        }
+    }
+
+    if (value.length<7)
+    {
+      var miss_str = "";
+      for(var i = 0; i<miss_type.length;i++)
+      {
+        if(miss_type[i]["is_miss"])
+        {
+          miss_str = miss_type[i]["file_type"] + "," + miss_str;
+        }
+      }
+      // miss_str = miss_str.substr(0,miss_str.length);
+      if(confirm("he upload file is missing "+ miss_str + " whether to continue operation？"))
+      {
+        Start_Release(value);
+      }
+      else {
+        $.unblockUI();
+      }
+    }
+    else{
+      Start_Release(value);
+    }
+  };
+
+  function Start_Release(value){
+    var token = localStorage.token;
+    var url = "http://localhost:5000/v1.0/shipping_plan/" + token;
+    $http.post(url,value)
+    .then(
+        function seccess(response){
+          // 缺少前台 等待进度条。面罩等
+          alert("Release Successfully!");
+          $scope.dis_release = true;
+          $scope.dis_unrelease = false;
+          $.unblockUI();
+        },function error(response){
+          $.unblockUI();
+          alert(response.data.message)
+        }
+      );
+  }
+  $scope.UnRelease = function(){
+    var token = localStorage.token;
+    var plant = JSON.parse(JSON.stringify($scope.Plant)).plant;
+    var url = "http://localhost:5000/v1.0/shipping_plan/head/" + token +"/"+plant;
+    $http.put(url)
+    .then(
+        function seccess(response){
+          // 缺少前台 等待进度条。面罩等
+          alert("Unfreeze Successfully!");
+          $scope.dis_release = false;
+          $scope.dis_unrelease = true;
+      },function error(response){
+        alert(response.data.message);
+      }
+      );
+  }
+
+});
+
+
+app.controller('shipping_report', function($scope, $http) {
+  $scope.Plants = [{"plant":"PAJ3"},{"plant":"PAJ1"}];
+  $scope.ProductTypes = [{"type":"All"},{"type":"L12"},{"type":"L6"},{"type":"NPI"},{"type":"RMA"}]
+  $scope.Dates = [{"date":"2018/06/20"},{"date":"2018/06/27"}];
+  $scope.ShipData = [{"hhpn":"test1","qtys":[{"qty":1},{"qty":2}]},{"hhpn":"test2","qtys":[{"qty":3},{"qty":4}]}];
+  $scope.show_condition = true;
+  $scope.show_search_result = false;
+  $scope.is_nodata = false;//查无结果时，显示一行
+  $scope.Table_message = 'No Such data!'
+  $scope.pageNo = 1;
+  $scope.pageSize = 3;//item条数，实际显示行数为item*4，即 3*4，12行(1个item有4种类型数据)
+
+
+  function clear_param(source_str)
+  {
+    var clear_str=source_str;
+    if (!!clear_str) {
+      clear_str=clear_str.replace(/，/g,",").replace(/\s/g,",");
+      clear_str=clear_str.replace(/,,/g,",");
+      if(clear_str.substr(clear_str.length-1,1)==","){
+        clear_str=clear_str.substring(0,clear_str.length-1);
+      }
+    }
+    else
+    {
+      clear_str="";
+    }
+    return clear_str;
+  }
+  $scope.get_page = function()
+  {
+    var CustomerPN = clear_param($scope.CustomerPN);
+    var HHPN = clear_param($scope.HHPN);
+    var Region = clear_param($scope.Region);
+    var Module = clear_param($scope.Module);
+    var Ship_To = clear_param($scope.ShipTo);
+    var Plant = JSON.parse(JSON.stringify($scope.Plant)).plant;
+    var ProductType = JSON.parse(JSON.stringify($scope.ProductType)).type;
+    var Version_Date = $('#StartDate').val().replace(/\//g,"-");
+    url='http://localhost:5000/v1.0/shipping_plan/report?customer_pn='+CustomerPN+
+    '&hhpn='+HHPN+'&region='+ Region +'&module='+ Module+'&ship_to='+ Ship_To +
+    '&plant='+Plant+'&select_date='+Version_Date +'&product_type='+ ProductType +
+    '&page_no='+$scope.pageNo+'&page_size='+$scope.pageSize;
+    $scope.edit_flag = false;
+    $scope.save_flag = !$scope.edit_flag;// 保存和编辑状态相反
+    $http.get(url)
+    .then(function success(response) {
+      $scope.ShipData = response.data.content.sp_table;
+      $scope.ShipDates = response.data.content.table_dates;
+      $scope.total_page = response.data.content.total_page;
+      $scope.release_status = response.data.content.release_status;
+      // console.log($scope.pos);
+      $scope.show_condition = false;
+      $scope.show_search_result = true;
+      $('#updown').removeClass("fa-chevron-up");
+      $('#updown').addClass("fa-chevron-down");
+      if(!!$scope.ShipData && $scope.ShipData.length>0)
+      {
+        console.log(!!$scope.ShipData);
+        $scope.is_nodata = false;
+      }
+      else{
+        console.log(!!$scope.ShipData);
+        console.log($scope.ShipData.length);
+        $scope.is_nodata = true;
+        $scope.ShipDates = [];
+        // alert("there is no such data!");
+      }
+      console.log($scope.release_status);
+
+      if(ProductType=='All')
+      {
+        $scope.show_release_icon = true;
+        $scope.show_edit_icon = true;
+        $scope.show_save_icon = true;
+      }
+      else if(ProductType=='L6')
+      {
+        $scope.show_release_icon = false;
+        $scope.show_edit_icon = true;
+        $scope.show_save_icon = true;
+      }
+      else
+      {
+        $scope.show_release_icon = false;
+        $scope.show_edit_icon = false;
+        $scope.show_save_icon = false;
+      }
+      if ( $scope.release_status == 0)
+      {
+        $('#edit_icon').css("color","#1ab394");
+        $('#save_icon').css("color","#b1b2b3");
+        $('#release_icon').css("color","#1ab394");
+      }
+      else
+      {
+        $('#edit_icon').css("color","#b1b2b3");
+        $('#save_icon').css("color","#b1b2b3");
+        $('#release_icon').css("color","#b1b2b3");// 灰色，不可使用
+      }
+    },function error(response) {
+      alert(response.data.message);
+      $scope.show_search_result = false;
+      $scope.show_release_icon = false;
+      $scope.show_edit_icon = false;
+      $scope.show_save_icon = false;
+      $scope.Table_message = response.data.message;
+      $scope.is_nodata = true;
+      // location.href = response.data.nextUrl;
+    });
+  }
+
+  $scope.ship_release = function(){
+    console.log($scope.release_status);
+    if(!! $scope.release_status || $scope.ShipData.length<1) // 条件不够 ，需加上查未果
+      return;
+
+    var Plant = JSON.parse(JSON.stringify($scope.Plant)).plant;
+    var ProductType = JSON.parse(JSON.stringify($scope.ProductType)).type;
+    var Version_Date = $('#StartDate').val().replace(/\//g,"-");
+    showBlockUI();
+    var url='http://localhost:5000/v1.0/shipping_plan/version/'+localStorage.token+'/'+Plant+'/'+Version_Date;
+    $http.put(url)
+    .then(
+      function success(response){
+        alert("release Successfully!");
+        $('#edit_icon').css("color","#b1b2b3");
+        $('#save_icon').css("color","#b1b2b3");
+        $('#release_icon').css("color","#b1b2b3");
+        $.unblockUI();
+        $scope.release_status = 1;
+      },function error(response){
+        $.unblockUI();
+        alert(response.data.message);
+      }
+    )
+  }
+  $scope.reset=function(){
+    $scope.CustomerPN = "";
+    $scope.HHPN= "";
+    $scope.Region = "";
+    $scope.Module = "";
+    $scope.ShipTo = "";
+    $scope.Plant = $scope.Plants[0];
+    $scope.ProductType = $scope.ProductTypes[0];
+    $('#StartDate').val(laydate.now(0, 'YYYY/MM/DD'));
+  }
+  // 只有L6 需要编辑和保存按钮，且编辑内容为Buffer
+  $scope.edit_flag = false;
+  $scope.save_flag = !$scope.edit_flag;// 保存和编辑状态相反
+  $scope.edit_report = function(){
+    if ($scope.edit_flag)// 已经在编辑状态，不需要以下处理
+    {
+      return;
+    }
+    else
+    {
+      $scope.edit_flag = true;
+      $scope.save_flag = !$scope.edit_flag;
+      $('#edit_icon').css("color","#b1b2b3");
+      $('#save_icon').css("color","#1ab394");
+    }
+   $('#ship_table').find('tr').each(
+     function(i){
+       if((i+1)%4 !=0)
+         return ;
+       var product_type = $(this).find('td').eq(9).text();
+       console.log(product_type);
+       if(product_type!='L6')
+          return;
+       var tds = $(this).find('td');
+       for(var j= 11;j<tds.length-4 ;j++)
+       {
+         var html = tds.eq(j).html();
+         tds.eq(j).html("");
+         var inputObj = $("<input type='number'>");
+         inputObj.appendTo(tds.eq(j));
+        //  inputObj.css('text-align','center');
+         inputObj.css('width','95%');
+         inputObj.val(html);
+       }
+     }
+   )
+  }
+
+  $scope.save_report = function(){
+    if ($scope.save_flag)
+    {
+      return;
+    }
+    else
+    {
+      $scope.save_flag = true;
+      $scope.edit_flag = !$scope.save_flag;
+    }
+    if(!confirm("Are you sure to save this information?"))
+     return;
+    var info = new Array();
+    var trs = $('#ship_table').find('tr');
+    $('#ship_table').find('tr').each(
+      function(i){
+        if((i+1)%2 !=0)
+          return ;
+        var req_id = $(this).find('td:eq(0)').html();
+        var req_item_id = $(this).find('td:eq(1)').html();
+        var qty_type = $(this).find('td').eq(10).html();
+        $(this).find('input[type="number"]').each(
+          function(i)
+          {
+
+            var date_html = $('#ship_table').find('tr').eq(0).children('th').eq(i+11).html();
+            var inputVal = $(this).val();
+
+            $(this).parents('td').html(inputVal);
+            var temp = {'req_id':req_id,'req_item_id':req_item_id,"qty_type":qty_type,"fcst_date":date_html,"qty":inputVal}
+            info.push(temp);
+          }
+        )
+      }
+    )
+
+     console.log(info);
+     showBlockUI();
+     var put_url = 'http://localhost:5000/v1.0/shipping_plan/report/'+localStorage.token;
+     $http.put(put_url,info)
+     .then(
+       function success(response)
+       {
+         alert('Save Successfully!');
+         $scope.search();
+         $.unblockUI();
+         $('#edit_icon').css("color","#1ab394");//保存成功，可编辑，不可再保存
+         $('#save_icon').css("color","#b1b2b3");//
+       },
+       function error(response)
+       {
+         alert(response.data.message);
+         $.unblockUI();
+         $('#edit_icon').css("color","#b1b2b3");
+         $('#save_icon').css("color","#1ab394");
+         $scope.edit_report();
+       }
+     )
+  }
+
+  $scope.export = function() {
+    var CustomerPN = clear_param($scope.CustomerPN);
+    var HHPN = clear_param($scope.HHPN);
+    var Region = clear_param($scope.Region);
+    var Module = clear_param($scope.Module);
+    var Ship_To = clear_param($scope.ShipTo);
+    var Plant = JSON.parse(JSON.stringify($scope.Plant)).plant;
+    var ProductType = JSON.parse(JSON.stringify($scope.ProductType)).type;
+    var Version_Date = $('#StartDate').val().replace(/\//g,"-");
+    showBlockUI();
+    url='http://localhost:5000/v1.0/shipping_plan/excel?customer_pn='+CustomerPN+
+    '&hhpn='+HHPN+'&region='+Region +'&module='+Module+'&ship_to='+Ship_To +
+    '&plant='+Plant+'&select_date='+Version_Date +'&product_type='+ProductType;
+    $http.get(url)
+    .then(function success(response) {
+      window.open(response.data.content.download_url);
+      window.close();
+      $.unblockUI();
+    },function error(response) {
+      $.unblockUI();
+      alert(response.data.message);
+    });
+  };
+
+  $scope.search = function () {
+    $scope.pageNo = 1;
+    $scope.get_page();
+  };
+
+  $scope.$on('ngRepeatFinished', function (ngRepeatFinishedEvent) {
+    $('#ship_table tr').find('td:eq(0)').hide();
+    $('#ship_table tr').find('th:eq(0)').hide();
+    $('#ship_table tr').find('td:eq(1)').hide();
+    $('#ship_table tr').find('th:eq(1)').hide();
+    $('#ship_table tr').each(
+      function(i){
+        if((i+1)%4==2)
+        {
+          $(this).css('background',"#e6f9e6");
+        }
+        else {
+          $(this).css('background',"#fff");
+        }
+      }
+    )
+    // $('#ship_table tr').find('td:eq(16)').hide();
+    // $('#ship_table tr').find('th:eq(16)').hide();
+    //下面是在table render完成后执行的js
+     if(typeof($scope.pageNo)!="undefined" && $scope.pageNo == 1)
+     {
+       $('#pager_first').addClass("ui-disabled");
+       $('#pager_previous').addClass("ui-disabled");
+     }
+     else if(typeof($scope.pageNo)!="undefined" && $scope.pageNo == "1"){
+       $('#pager_first').addClass("ui-disabled");
+       $('#pager_previous').addClass("ui-disabled");
+     }
+     else if(typeof($scope.pageNo)!="undefined") {
+       $('#pager_first').removeClass("ui-disabled");
+       $('#pager_previous').removeClass("ui-disabled");
+     }
+
+     if($scope.pageNo == $scope.total_page )
+     {
+       $('#pager_last').addClass("ui-disabled");
+       $('#pager_next').addClass("ui-disabled");
+     }
+     else {
+       $('#pager_last').removeClass("ui-disabled");
+       $('#pager_next').removeClass("ui-disabled");
+     }
+  });
+
+  $scope.first_page = function(){
+    if($scope.pageNo>1)
+        $scope.pageNo = 1;
+    else {
+      return;
+    }
+    $scope.get_page();
+  };
+  $scope.previous_page = function(){
+    if($scope.pageNo>1)
+        $scope.pageNo -= 1;
+    else {
+      return;
+    }
+    $scope.get_page();
+  };
+  $scope.next_page = function(){
+    if($scope.pageNo<$scope.total_page)
+        $scope.pageNo += 1;
+    else{
+      return;
+    }
+    $scope.get_page();
+  };
+  $scope.last_page = function(){
+    if($scope.pageNo<$scope.total_page)
+        $scope.pageNo = $scope.total_page;
+    else{
+      return;
+    }
+    $scope.get_page();
+  };
+
+  $scope.enterEvent = function(e) {
+      var keycode = window.event?e.keyCode:e.which;
+      if(keycode==13){
+        var pageNo ;
+        pageNo = $scope.pageNo;
+        var r = /^\+?[1-9][0-9]*$/;　　//正整数
+        if(r.test(pageNo)){
+          // alert("Summary Weeks is an Integer!");
+          if(parseInt(pageNo)>$scope.total_page)
+          {
+            alert("Input Error! Page must be no more than total page!");
+            return;
+          }
+        }
+        else {
+          alert("Input Error! Page is not an Integer!");
+          return;
+        }
+        $scope.get_page();
+      }
+  };
+
+  $scope.updown = function(){
+    var info = $('#updown');
+    // 判斷按鈕狀態
+    if (info.hasClass("fa-chevron-up")) {
+      info.removeClass("fa-chevron-up").addClass("fa-chevron-down");
+      $scope.show_condition = false;
+    }
+    else {
+      info.removeClass("fa-chevron-down").addClass("fa-chevron-up");
+      $scope.show_condition = true;
+    }
+
+  };
+});
