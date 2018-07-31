@@ -1,0 +1,475 @@
+import app
+from models.maria_epbg.mod_customer_po import Customer_POQuote,Customer_PO,\
+Customer_POInfo,Customer_POQuoteHead,Customer_POImdemandTemp,Customer_POTrack,Customer_POWMSTemp
+from models.server_epbg.mod_customer_po import Customer_POImdemand
+from models.other_system.mod_customer_po import Customer_POTrackWms
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import and_, or_,distinct,literal,case,func
+from views.common.com_write import com_param_arr
+from  views.common.com_file import com_log_txt
+import json,time,sys,os,xlrd,datetime
+import uuid
+from collections import OrderedDict
+
+def get_items(po_address,po_number,po_dateStart,po_dateEnd,description):
+    if(po_number != ''):
+        po_nums = po_number.split(',')
+    else:
+        po_nums = []
+    if(po_address != ''):
+        po_adds = po_address.split(',')
+    else:
+        po_adds = []
+    po_head = app.db.session.query(
+                Customer_PO.po_number
+            ).join(
+                Customer_POInfo,
+                Customer_PO.po_num_add == Customer_POInfo.po_num_add
+            ).filter(
+                and_(
+                        or_(po_number == '',Customer_PO.po_number.in_(po_nums)),
+                        Customer_PO.order_date.between(po_dateStart,po_dateEnd),#注意日期格式，后期写 日期 字串转换公用函数
+                        or_(po_address == 'ALL',Customer_PO.po_num_add.in_(po_adds)),
+                        Customer_PO.description.like('%'+description+'%')
+                    )
+            ).order_by(
+                Customer_PO.order_date.desc(),Customer_PO.po_num_add.desc()
+            ).subquery()
+    po_items = app.db.session.query(
+            Customer_POTrack.amazon_id,Customer_POTrack.po_number,
+            Customer_POTrack.po_date,Customer_POTrack.part_no,
+            Customer_POTrack.description,Customer_POTrack.unit_price_total,
+            literal('').label("total_price"),
+            Customer_POTrack.freight_price_total,Customer_POTrack.asset_id,
+            Customer_POTrack.site_code,Customer_POTrack.demand_received_date,
+            Customer_POTrack.shipped_date,Customer_POTrack.SN,
+            Customer_POTrack.HHPN,Customer_POTrack.DN_number,
+            Customer_POTrack.POD_date,Customer_POTrack.invoice_number,
+            Customer_POTrack.billing_date,Customer_POTrack.billing_submitted_date,
+            Customer_POTrack.real_number,Customer_POTrack.real_date,
+            Customer_POTrack.unit_price_status,Customer_POTrack.freight_price_status
+        ).join(
+            po_head,
+            po_head.c.po_number == Customer_POTrack.po_number
+        ).order_by(
+            Customer_POTrack.po_date.desc(),
+            Customer_POTrack.amazon_id.asc()
+        ).all()
+    return po_items
+
+def track_lifecycle():
+    try:
+    # 1.从 WMS 系统获取数据 存入 mariadb 作为 temp
+        app.db.session.query(Customer_POWMSTemp).delete()
+        pos_status = app.db.session.query(
+            Customer_POTrackWms.PO,
+            Customer_POTrackWms.ASSETID,
+            Customer_POTrackWms.SITE,
+            Customer_POTrackWms.SN,
+            Customer_POTrackWms.HH_PN,
+            Customer_POTrackWms.POD_Date,
+            Customer_POTrackWms.S_DN_NO,
+            Customer_POTrackWms.S_BILLING_NO
+        ).all()
+        for track in pos_status:
+            temp = Customer_POWMSTemp(
+                amazon_id = track.PO,
+                asset_id = track.ASSETID,
+                site_code = track.SITE,
+                SN = track.SN,
+                HHPN = track.HH_PN,
+                POD_date = track.POD_Date,
+                DN_number = track.S_DN_NO,
+                invoice_number = track.S_BILLING_NO,
+                create_date = time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
+            )
+            app.db.session.add(temp)
+        app.db.session.commit()
+        # 3.连接mariadb temp 表，先根据 amazon_id 更新状态
+        app.db.session.query(
+                Customer_POTrack
+            ).filter(
+                and_(
+                    or_(
+                        Customer_POTrack.real_date == None,
+                        Customer_POTrack.real_date == ''
+                    ),
+                    Customer_POWMSTemp.amazon_id == Customer_POTrack.amazon_id
+                )
+            ).update(
+                {
+                    Customer_POTrack.SN :Customer_POWMSTemp.SN,
+                    Customer_POTrack.HHPN:Customer_POWMSTemp.HHPN,
+                    Customer_POTrack.POD_date:Customer_POWMSTemp.POD_date,
+                    Customer_POTrack.DN_number:Customer_POWMSTemp.DN_number,
+                    Customer_POTrack.invoice_number:Customer_POWMSTemp.invoice_number,
+                    Customer_POTrack.track_date:time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
+                },
+                synchronize_session='fetch'
+            )
+        # 4.连接mariadb temp 表，再根据 asset_id 更新状态,因为有的 po 可能暂时没有 amazon_id
+        app.db.session.query(
+                Customer_POTrack
+            ).filter(
+                and_(
+                    or_(
+                        Customer_POTrack.real_date == None,
+                        Customer_POTrack.real_date == ''
+                    ),
+                    Customer_POWMSTemp.asset_id == Customer_POTrack.asset_id
+                )
+            ).update(
+                {
+                    Customer_POTrack.SN :Customer_POWMSTemp.SN,
+                    Customer_POTrack.HHPN:Customer_POWMSTemp.HHPN,
+                    Customer_POTrack.POD_date:Customer_POWMSTemp.POD_date,
+                    Customer_POTrack.DN_number:Customer_POWMSTemp.DN_number,
+                    Customer_POTrack.invoice_number:Customer_POWMSTemp.invoice_number,
+                    Customer_POTrack.track_date:time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
+                },
+                synchronize_session='fetch'
+            )
+
+    except Exception as e:
+        app.db.session.rollback()
+        raise Exception(str(e))
+
+def dal_need_check():
+    try:
+        # 1. 从 sql_server db 中获取 AmazonID，AssetID,Ship_to_Site 到 mysql db
+        # 以便做表连接等操作
+        stmt_a = app.db.session.query(
+                        Customer_POImdemand.AmazonID,
+                        Customer_POImdemand.AssetID,
+                        Customer_POImdemand.Ship_to_Site,
+                        Customer_POImdemand.Cluster
+                    ).filter(
+                        and_(
+                            Customer_POImdemand.AmazonID.isnot(None),
+                            Customer_POImdemand.AmazonID!='',
+                            Customer_POImdemand.Cluster.isnot(None),
+                            Customer_POImdemand.Cluster!=''
+                            )
+                    ).group_by(
+                        Customer_POImdemand.Ship_to_Site,
+                        Customer_POImdemand.AmazonID,
+                        Customer_POImdemand.AssetID,
+                        Customer_POImdemand.Cluster
+                    ).all()
+        req_id = str(uuid.uuid4())
+        for im in stmt_a:
+            temp_im = Customer_POImdemandTemp(
+                    ReqID = req_id,
+                    AmazonID = im.AmazonID,
+                    Ship_to_Site = im.Ship_to_Site,
+                    AssetID = im.AssetID,
+                    Cluster = im.Cluster,
+                    create_date = time.strftime("%Y-%m-%d %H:%M:%S",time.localtime()),
+                    create_by = "check quote"
+            )
+            app.db.session.add(temp_im)
+        app.db.session.commit()
+        ## 2.选取需要 check quote的 PO，并存入 tracking 表，用AmazonID(po 的子项)，子项中才会有Ship_to_Site去做比对
+        stmt_track = app.db.session.query(
+                    Customer_PO.po_number,
+                    Customer_PO.order_date,
+                    Customer_PO.part_no,
+                    Customer_PO.description,
+                    Customer_PO.unit_price,
+                    Customer_PO.freight_price,
+                    Customer_PO.add_rack_price,
+                    Customer_PO.add_freight_price,
+                    Customer_PO.unit_price_status,
+                    Customer_PO.freight_price_status,
+                    Customer_POImdemandTemp.AmazonID,
+                    Customer_POImdemandTemp.Ship_to_Site,
+                    Customer_POImdemandTemp.AssetID,
+                    Customer_POImdemandTemp.Cluster
+                ).join(
+                    Customer_POImdemandTemp,
+                    Customer_POImdemandTemp.AmazonID.like('%'+Customer_PO.po_number+'%')
+                ).filter(
+                        and_(
+                                or_(
+                                Customer_PO.unit_price_status == None,
+                                Customer_PO.unit_price_status != "1",
+                                Customer_PO.freight_price_status == None,
+                                Customer_PO.freight_price_status != "1"
+                                ),
+                                Customer_POImdemandTemp.ReqID == req_id
+                            )
+                ).subquery()
+
+        ## 3. 将此次需要比对的信息放入 tracking 之前，需要删除上次比对已存在的数据
+        del_pos = app.db.session.query(
+            Customer_POTrack.po_number
+        ).join(
+            Customer_PO,
+            Customer_POTrack.po_number==Customer_PO.po_number
+        ).join(
+            Customer_POImdemandTemp,
+            Customer_POImdemandTemp.AmazonID.like('%'+Customer_PO.po_number+'%')
+        ).filter(
+            and_(
+                    or_(
+                        Customer_PO.unit_price_status == None,
+                        Customer_PO.unit_price_status != "1",
+                        Customer_PO.freight_price_status == None,
+                        Customer_PO.freight_price_status != "1"
+                    ),
+                    Customer_POImdemandTemp.ReqID == req_id
+                )
+        ).all()
+        for po in del_pos:
+            app.db.session.query(
+                Customer_POTrack
+            ).filter(
+                Customer_POTrack.po_number == po.po_number
+            ).delete()
+        # 4.存入 Customer_POTrack 表
+        for po in app.db.session.query(stmt_track).all():
+            unit_total = (0.0 if po.unit_price == "" else float(po.unit_price)) +\
+                        (0.0 if po.add_rack_price == "" else float(po.add_rack_price))
+            freight_total = (0.0 if po.freight_price == "" else float(po.freight_price)) +\
+                        (0.0 if po.add_freight_price == "" else float(po.add_freight_price))
+            temp = Customer_POTrack(
+                amazon_id = po.AmazonID,
+                po_number = po.po_number,
+                # po_qty = po.po_qty,
+                po_date = po.order_date,
+                part_no = po.part_no,
+                description = po.description,
+                unit_price_total = unit_total,
+                freight_price_total = freight_total,
+                asset_id = po.AssetID,
+                site_code = po.Ship_to_Site,
+                cluster = po.Cluster,
+                create_date = time.strftime("%Y-%m-%d %H:%M:%S",time.localtime()),
+                create_by = "check quote"
+            )
+            app.db.session.add(temp)
+        app.db.session.commit()
+
+        # 5. 用子项的cluster ,part_po,极其order_date所对应的quote_day，去比价，\
+        #　之所以用子项是因为父项没有cluster
+        for po in app.db.session.query(stmt_track).all():
+            quo_d = app.db.session.query(
+                        Customer_POQuoteHead.quote_day
+                    ).filter(
+                        and_(
+                                Customer_POQuoteHead.quote_day <= po.order_date,
+                                Customer_POQuoteHead.quote_day.like('%'+po.order_date[0:7]+'%')
+                            )
+                    ).order_by(
+                        Customer_POQuoteHead.quote_day.desc()
+                    ).first()
+        #
+            if not quo_d:
+                continue
+            unit_total = (0.0 if po.unit_price == "" else float(po.unit_price)) +\
+                        (0.0 if po.add_rack_price == "" else float(po.add_rack_price))
+            freight_total = (0.0 if po.freight_price == "" else float(po.freight_price)) +\
+                        (0.0 if po.add_freight_price == "" else float(po.add_freight_price))
+            xpr_1 = case([(round(unit_total) == Customer_POQuote.quoted_rack_currency_int , 1),],
+                    else_ = 0)
+            xpr_2 = case([(round(freight_total) == Customer_POQuote.rack_freight_currency_int , 1),],
+                    else_ = 0)
+            app.db.session.query(
+                    Customer_POTrack
+                ).filter(
+                    and_(
+                        Customer_POTrack.amazon_id== po.AmazonID,
+                        Customer_POTrack.part_no == Customer_POQuote.rack_ipn,
+                        Customer_POTrack.cluster == Customer_POQuote.cluster,
+                        quo_d.quote_day==Customer_POQuote.quote_day
+                        )
+                ).update(
+                    {
+                        Customer_PO.unit_price_status:xpr_1,
+                        Customer_PO.freight_price_status:xpr_2
+                    },
+                    synchronize_session='fetch'
+                )
+        # 6.更新 父项 状态 ，同一个PO单衍生出的子项的比价状态必然一样
+        need_update_po = app.db.session.query(
+                        Customer_POTrack.po_number,
+                        Customer_POTrack.unit_price_status,
+                        Customer_POTrack.freight_price_status
+                    ).filter(
+                        Customer_POTrack.unit_price_status.isnot(None)
+                    ).group_by(
+                        Customer_POTrack.po_number,
+                        Customer_POTrack.unit_price_status,
+                        Customer_POTrack.freight_price_status
+                    ).subquery()
+        app.db.session.query(
+            Customer_PO
+        ).filter(
+            Customer_PO.po_number == need_update_po.c.po_number
+        ).update(
+            {
+                Customer_PO.unit_price_status : need_update_po.c.unit_price_status,
+                Customer_PO.freight_price_status : need_update_po.c.freight_price_status,
+                Customer_PO.edit_by : "check quote",
+                Customer_PO.edit_date : time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
+            },
+            synchronize_session='fetch'
+        )
+
+        app.db.session.query(Customer_POImdemandTemp).filter(Customer_POImdemandTemp.ReqID == req_id).delete()
+        app.db.session.commit()
+    # print(need_update_po_1)
+    except Exception as e:
+        app.db.session.rollback()
+        com_log_txt("po_tracking","error in dal.check_quote!" + str(e))
+        raise Exception("error in dal.check_quote! "+str(e))
+
+def delete_po_by_ponumber(obj):
+    try:
+        info = app.db.session.query(
+                    Customer_PO
+                ).filter(
+                    Customer_PO.po_number == obj["po_number"]
+                ).delete()
+    except Exception as e:
+        app.db.session.rollback()
+        raise Exception("Something is error in delete po by number!"+str(e))
+
+
+def save_customer_po(obj):
+    # try:
+    po = Customer_PO(
+        po_number = obj["po_number"],
+        order_date = obj["po_date"],
+        revision_date = obj["po_revision_date"],
+        part_no = obj["part_no"],
+        description = obj["desc"],
+        currency = obj["currency"],
+        po_qty = obj["po_qty"],
+        unit_price = obj["unit_price"],
+        # freight_qty = obj["freight_qty"],
+        freight_price = obj["freight_price"],
+        add_rack_price = obj["add_rack_price"],
+        add_freight_price = obj["add_freight_price"],
+        po_name = obj["po_name"],
+        po_address = obj["po_address"],
+        vendor_name = obj["supplier_name"],
+        vendor_address = obj["supplier_address"],
+        ship_name = obj["shipTo_name"],
+        ship_address = obj["shipTo_address"],
+        invoice_name = obj["invoiceTo_name"],
+        invoice_address = obj["invoiceTo_address"],
+        acception_id = obj["acception_id"],
+        vat_id = obj["vat_id"],
+        po_num_add= obj["po_num_add"],
+        create_by =obj["user_id"], # from token message,
+        create_date = time.strftime("%Y-%m-%d %H:%M:%S",time.localtime()) ## python get date?，
+        # edit_by = obj["user_id"],# from token message
+        # edit_date = time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
+    )
+    app.db.session.add(po)
+    app.db.session.commit()
+    # except Exception as e:
+    #     app.db.session.rollback()
+    #     raise Exception("Input may be error! " + str(e))
+
+def exist_po(po_number):
+    po_list = app.db.session.query(
+                Customer_PO
+            ).filter(
+                Customer_PO.po_number == po_number
+            ).all()
+    if(len(po_list)==0):
+        info = app.db.session.query(
+                Customer_POInfo
+            ).filter(
+                Customer_POInfo.po_num_add == po_number[0:2]
+            ).all()
+        if len(info)==0:
+            newinfo = Customer_POInfo(
+                        po_num_add = po_number[0:2],
+                        tax = 0.0
+                    )
+            app.db.session.add(newinfo)
+            app.db.session.commit()
+    return po_list
+
+def del_quote_by_version(version):
+    try:
+        app.db.session.query(Customer_POQuoteHead).filter(Customer_POQuoteHead.quote_day == version).delete()
+        app.db.session.query(Customer_POQuote).filter(Customer_POQuote.quote_day == version).delete()
+    except Exception as e:
+        app.db.session.rollback()
+        raise Exception("Error in delete_quote_by_version! "+ str(e))
+def check_quote_version(version_date):
+    try:
+        print(version_date)
+        result = app.db.session.query(
+                        Customer_POQuoteHead
+                    ).filter(
+                        Customer_POQuoteHead.quote_day==version_date
+                    ).all()
+        print(result)
+        if result:
+            return False
+        else:
+            return True
+    except Exception as e:
+        raise Exception("Error in check_quote_revision! "+ str(e))
+
+def save_quote(quote_list,user_id,version):
+    try:
+        head = Customer_POQuoteHead(
+                quote_day = version,
+                is_active = 1,
+                is_alive = 1,
+                create_by = user_id, # from token message,
+                create_date = time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
+            )
+        app.db.session.add(head)
+        for quote in quote_list:
+            info = Customer_POQuote(
+                quote_day = str(quote["quote_day"])[0:4]+"/"+str(quote["quote_day"])[4:6]+"/"+str(quote["quote_day"])[6:8],
+                rack_type = quote["rack_type"],
+                rack_ipn = quote["rack_ipn"],
+                quote_number = quote["quote_number"],
+                vendor = quote["vendor"],
+                valid_from_date = quote["valid_from_date"],
+                valid_to_date = quote["valid_to_date"],
+                region = quote["region"],
+                cluster = quote["cluster"],
+                power = quote["power"],
+                server_1_density = quote["server_1_density"],
+                server_2_density = quote["server_2_density"],
+                total_server_cost = quote["total_server_cost"],
+                total_rack_cost = quote["total_rack_cost"],
+                margin = quote["margin"],
+                rack_freight_cost = quote["rack_freight_cost"],
+                weight = quote["weight"],
+                quoted_rack_cost = quote["quoted_rack_cost"],
+                exchange_rate = quote["exchange_rate"],
+                quoted_rack_currency = quote["quoted_rack_currency"],
+                rack_freight_currency = quote["rack_freight_currency"],
+                quoted_rack_currency_int = quote["quoted_rack_currency_int"],
+                rack_freight_currency_int = quote["rack_freight_currency_int"],
+                local_currency = quote["local_currency"],
+                tax_cost = quote["tax_cost"],
+                tax_cost_currency = quote["tax_cost_currency"],
+                tax_cost_currency_int = quote["tax_cost_currency_int"],
+                comments = quote["comments"],
+                quote_type = quote["quote_type"],
+                revision = quote["revision"],
+                is_active = 1,
+                is_alive = 1,
+                create_by = user_id, # from token message,
+                create_date = time.strftime("%Y-%m-%d %H:%M:%S",time.localtime()) ## python get date?，
+                # edit_by = user_id,# from token message
+                # edit_date = time.strftime("%Y-%m-%d %H:%M:%S",time.localtime()) ## python get date?
+            )
+            app.db.session.add(info)
+        app.db.session.commit()
+        # app.db.session.close()
+    except Exception as e:
+        app.db.session.rollback()
+        # com_log_txt("min_max","The error record vendor_code(%s),part_no(%s).\n Reason: %s"%(min_max.VendorCode,min_max.PartNo,str(e)))
+        raise Exception(e.args)
