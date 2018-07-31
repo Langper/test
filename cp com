@@ -1,0 +1,207 @@
+from flask import request
+import json,zipfile,os,datetime,re
+import base64
+from views.DAL.dal_common import search_param_values
+
+class Basic_Req_Param(object):
+    def __init__(self, token):
+        super(Basic_Req_Param, self).__init__()
+        self.user_id,self.is_sys_admin = get_user_info_by_token(token)
+
+def get_user_info_by_token(token):
+    user_id = token
+    is_sys_admin = 0
+    user_info = re.split("@", token)
+    if len(user_info) >=2:
+        user_id = user_info[0]
+        is_sys_admin = int(user_info[1])
+    return user_id,is_sys_admin
+
+
+def get_com_param(request):
+    lang = request.args.get("lang",'zh-CN')
+    token = request.args.get("token",'')
+    pageSize = request.args.get("pageSize",'10')
+    pageNo = request.args.get("pageNo",'1')
+
+    return lang,token,pageSize,pageNo
+
+def get_zip_stream(zfile_path):
+    fin = open(zfile_path, "rb")
+    file_64 = base64.encodestring(fin.read())
+    print(fin.read())
+    return fin.read(),file_64
+
+def get_param_values(param_id=None,group_id=None):
+	value_str = search_param_values(param_id,group_id)
+	value_arr = re.split('&&',value_str.param_value)
+	return value_arr
+
+#根據日期獲取對應的周別数
+def get_WeekNumInYear(str_date,formate='%Y-%m-%d'):
+    date = datetime.datetime.strptime(str_date, formate)
+    week = date.isocalendar()[1]
+    return week
+#@param
+#strdate:需要向后推算当周第一天的日期
+#add_day:0周天，1周一...，6周六
+def get_FirstDayInWeek_by_add_day(str_date,formate='%Y-%m-%d',add_day=0):
+    date = datetime.datetime.strptime(str_date, formate)
+    week_num = date.isoweekday()
+    #若非周日，則取本周日
+    diff = int(add_day) - week_num
+    if diff == -7:
+    	sunday = date
+    else:
+    	diff = 7 + diff
+    	sunday = date + datetime.timedelta(days=diff)
+    #是周日，直接將日期返回
+    str_sunday = sunday.strftime(formate)
+    return str_sunday
+
+def get_FirstDayInWeek_by_minus_day(str_date,formate='%Y-%m-%d',add_day=0):
+    date = datetime.datetime.strptime(str_date, formate)
+    week_num = date.isoweekday()
+    print(week_num)
+    #若非周日，則取本周日
+    diff = int(add_day) - week_num
+    if diff == -7:
+    	sunday = date
+    else:
+    	sunday = date + datetime.timedelta(days=diff)
+    #是周日，直接將日期返回
+    str_sunday = sunday.strftime(formate)
+    return str_sunday
+
+#對應日期加周和加天 d1 = d + timedelta(weeks=-1) ，d1 = d + timedelta(days=-1) ,d2 = d - timedelta(weeks=1)
+# 日期（strdate）加上對應的周數（week）
+def get_Day_by_add_week(str_date,formate='%Y-%m-%d',add_week=0):
+    date = datetime.datetime.strptime(str_date,formate)
+    date = date + datetime.timedelta(weeks=int(add_week))
+    return date.strftime(formate)
+#獲取兩個日期之間的周數差
+def get_diffweek(startdate,enddate):
+    startdate=datetime.datetime.strptime(startdate, '%Y-%m-%d')
+    enddate=datetime.datetime.strptime(enddate, '%Y-%m-%d')
+    week=str((enddate-startdate)/7)
+    print(startdate)
+    print(enddate)
+    print("week")
+    print(week)
+    if str(week)[0]=="0":
+        diffweek=0
+    elif str(week)[1]:
+        diffweek=int(week[0]+week[1])
+    else:
+        diffweek=int(week[0])
+    return diffweek
+# def param_to_array(param_str,split_str)
+from flask import request
+import json,zipfile,os,datetime,re
+import base64
+from views.DAL.dal_common import search_param_values
+
+class Basic_Req_Param(object):
+    def __init__(self, token):
+        super(Basic_Req_Param, self).__init__()
+        self.user_id,self.is_sys_admin = get_user_info_by_token(token)
+
+def get_user_info_by_token(token):
+    user_id = token
+    is_sys_admin = 0
+    user_info = re.split("@", token)
+    if len(user_info) >=2:
+        user_id = user_info[0]
+        is_sys_admin = int(user_info[1])
+    return user_id,is_sys_admin
+
+
+def get_com_param(request):
+    lang = request.args.get("lang",'zh-CN')
+    token = request.args.get("token",'')
+    pageSize = request.args.get("pageSize",'10')
+    pageNo = request.args.get("pageNo",'1')
+
+    return lang,token,pageSize,pageNo
+
+def get_zip_stream(zfile_path):
+    fin = open(zfile_path, "rb")
+    file_64 = base64.encodestring(fin.read())
+    print(fin.read())
+    return fin.read(),file_64
+
+def get_param_values(param_id=None,group_id=None):
+	value_str = search_param_values(param_id,group_id)
+	value_arr = re.split('&&',value_str.param_value)
+	return value_arr
+
+#根據日期獲取對應的周別数
+def get_WeekNumInYear(str_date,formate='%Y-%m-%d'):
+    date = datetime.datetime.strptime(str_date, formate)
+    week = date.isocalendar()[1]
+    return week
+#@param
+#strdate:需要向后推算当周第一天的日期
+#add_day:0周天，1周一...，6周六
+def get_FirstDayInWeek_by_add_day(str_date,formate='%Y-%m-%d',add_day=0):
+    date = datetime.datetime.strptime(str_date, formate)
+    week_num = date.isoweekday()
+    #若非周日，則取本周日
+    diff = int(add_day) - week_num
+    if diff == -7:
+    	sunday = date
+    else:
+    	diff = 7 + diff
+    	sunday = date + datetime.timedelta(days=diff)
+    #是周日，直接將日期返回
+    str_sunday = sunday.strftime(formate)
+    return str_sunday
+
+def get_FirstDayInWeek_by_minus_day(str_date,formate='%Y-%m-%d',add_day=0):
+    date = datetime.datetime.strptime(str_date, formate)
+    week_num = date.isoweekday()
+    print(week_num)
+    #若非周日，則取本周日
+    diff = int(add_day) - week_num
+    if diff == -7:
+    	sunday = date
+    else:
+    	sunday = date + datetime.timedelta(days=diff)
+    #是周日，直接將日期返回
+    str_sunday = sunday.strftime(formate)
+    return str_sunday
+
+#對應日期加周和加天 d1 = d + timedelta(weeks=-1) ，d1 = d + timedelta(days=-1) ,d2 = d - timedelta(weeks=1)
+# 日期（strdate）加上對應的周數（week）
+def get_Day_by_add_week(str_date,formate='%Y-%m-%d',add_week=0):
+    date = datetime.datetime.strptime(str_date,formate)
+    date = date + datetime.timedelta(weeks=int(add_week))
+    return date.strftime(formate)
+#獲取兩個日期之間的周數差
+def get_diffweek(startdate,enddate):
+    startdate=datetime.datetime.strptime(startdate, '%Y-%m-%d')
+    enddate=datetime.datetime.strptime(enddate, '%Y-%m-%d')
+    week=str((enddate-startdate)/7)
+    print(startdate)
+    print(enddate)
+    print("week")
+    print(week)
+    if str(week)[0]=="0":
+        diffweek=0
+    elif str(week)[1]:
+        diffweek=int(week[0]+week[1])
+    else:
+        diffweek=int(week[0])
+    return diffweek
+# def param_to_array(param_str,split_str)
+def com_post_jsonToC(url,values):
+    result = {} # test 2s
+    headers = { 'Content-Type' : "application/json" }
+    data = json.dumps(values)
+    data = bytes(data,'utf8')
+    req = urllib.request.Request(url, data,headers)
+
+    with urllib.request.urlopen(req) as response:
+        html = response.read()
+    # resp = Response(html,status = 200,mimetype = "application/json")
+    return html
