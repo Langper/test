@@ -1,0 +1,10 @@
+from app import db
+from sqlalchemy.dialects.postgresql import UUID
+class Customer_POImdemand(db.Model):
+    __tablename__ = 'IMDemand'
+    __bind_key__ = 'sql_ser_epbg'
+    ReqItemID = db.Column(UUID,primary_key = True)
+    AmazonID = db.Column(db.String(30))
+    AssetID = db.Column(db.String(30))
+    Ship_to_Site = db.Column(db.String(20))
+    Cluster = db.Column(db.String(20))
